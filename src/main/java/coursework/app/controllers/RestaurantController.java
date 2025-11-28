@@ -18,6 +18,7 @@ public class RestaurantController {
     private TextField nameField;
     private TextField phoneField;
     private TextField addressField;
+    private PasswordField passwordField;
 
     public RestaurantController(RestaurantService service) {
         this.service = service;
@@ -43,8 +44,10 @@ public class RestaurantController {
         nameField = new TextField();
         phoneField = new TextField();
         addressField = new TextField();
+        passwordField = new PasswordField();
 
         loginField.setPromptText("Login");
+        passwordField.setPromptText("Password");
         nameField.setPromptText("Name");
         phoneField.setPromptText("Phone");
         addressField.setPromptText("Address");
@@ -59,9 +62,15 @@ public class RestaurantController {
 
         VBox form = new VBox(8,
                 new Label("Restaurant Form"),
+                new Label("Login:"),
                 loginField,
+                new Label("Password:"),
+                passwordField,
+                new Label("Name:"),
                 nameField,
+                new Label("Phone:"),
                 phoneField,
+                new Label("Address:"),
                 addressField,
                 addBtn,
                 updateBtn,
@@ -94,7 +103,6 @@ public class RestaurantController {
         TableColumn<Restaurant, String> addressCol = new TableColumn<>("Address");
         addressCol.setCellValueFactory(new PropertyValueFactory<>("address"));
 
-        // ČIA BŪTINA: TableView tiesiogiai naudoja shared ObservableList
         table.setItems(service.getAllRestaurants());
         table.getColumns().setAll(idCol, loginCol, nameCol, phoneCol, addressCol);
         table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
@@ -105,22 +113,27 @@ public class RestaurantController {
         nameField.setText(r.getName());
         phoneField.setText(r.getPhoneNumber());
         addressField.setText(r.getAddress());
+        // password nerodom – formoj keitimas optional, jei palieki tuščią – nekeičiam
+        passwordField.clear();
     }
 
     private void addRestaurant() {
-        if (!validate()) return;
+        // čia password PRIVALOMAS
+        if (!validate(true)) return;
+
+        String password = passwordField.getText();
 
         service.createRestaurant(
                 loginField.getText(),
-                "defaultPass",                // password – nerodomas formoje
+                password,
                 nameField.getText(),
-                "Restaurant",                 // surname – neaktualu formoje
+                "Restaurant", // role / surname tau nesvarbu
                 phoneField.getText(),
                 addressField.getText()
         );
 
-        // TableView susirišęs su ObservableList, todėl pats atsinaujina
         showInfo("Restaurant added.");
+        table.refresh();
     }
 
     private void updateRestaurant() {
@@ -129,15 +142,21 @@ public class RestaurantController {
             showError("Select restaurant first.");
             return;
         }
-        if (!validate()) return;
+        // updatinant password neprivalomas
+        if (!validate(false)) return;
 
         selected.setLogin(loginField.getText());
         selected.setName(nameField.getText());
         selected.setPhoneNumber(phoneField.getText());
         selected.setAddress(addressField.getText());
 
+        // jeigu formoje įrašai naują password – atnaujinam; jei tuščia, paliekam seną
+        if (!passwordField.getText().isBlank()) {
+            selected.setPassword(passwordField.getText());
+        }
+
         service.updateRestaurant(selected);
-        table.refresh(); // kad atsinaujintų cell’iai
+        table.refresh();
         showInfo("Restaurant updated.");
     }
 
@@ -149,17 +168,38 @@ public class RestaurantController {
         }
 
         service.deleteRestaurant(selected.getId());
-        // TableView susirišęs su ObservableList, removeIf jau pašalina iš sąrašo
+        table.getItems().remove(selected);
         showInfo("Restaurant deleted.");
     }
 
-    private boolean validate() {
+    // bendras validate, bet su parametru ar privalomas password
+    private boolean validate(boolean requirePassword) {
+        StringBuilder errors = new StringBuilder();
+
         if (loginField.getText().isBlank()) {
-            showError("Login cannot be empty.");
-            return false;
+            errors.append("- Login cannot be empty.\n");
         }
         if (nameField.getText().isBlank()) {
-            showError("Name cannot be empty.");
+            errors.append("- Name cannot be empty.\n");
+        }
+
+        if (requirePassword && passwordField.getText().isBlank()) {
+            errors.append("- Password is required.\n");
+        }
+
+        String phone = phoneField.getText().trim();
+        if (phone.isEmpty()) {
+            errors.append("- Phone is required.\n");
+        } else if (!phone.matches("\\+?[0-9 ]{6,15}")) {
+            errors.append("- Phone must contain only digits (and optional leading '+').\n");
+        }
+
+        if (addressField.getText().isBlank()) {
+            errors.append("- Address cannot be empty.\n");
+        }
+
+        if (errors.length() > 0) {
+            showError(errors.toString());
             return false;
         }
         return true;

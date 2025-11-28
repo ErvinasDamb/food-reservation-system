@@ -8,14 +8,15 @@ import coursework.service.BasicUserService;
 import coursework.service.DriverService;
 import coursework.service.RestaurantService;
 import coursework.service.ReviewService;
+import javafx.beans.property.SimpleIntegerProperty;
+import javafx.beans.property.SimpleLongProperty;
 import javafx.beans.property.SimpleStringProperty;
+import javafx.collections.FXCollections;
 import javafx.geometry.Insets;
+import javafx.scene.Parent;
 import javafx.scene.control.*;
-import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.VBox;
-
-import java.time.format.DateTimeFormatter;
 
 public class ReviewController {
 
@@ -24,6 +25,7 @@ public class ReviewController {
     private final RestaurantService restaurantService;
     private final DriverService driverService;
 
+    // TableView inicializuojam čia ir daugiau NEBEKURIAM iš naujo
     private final TableView<Review> table = new TableView<>();
 
     private ComboBox<BasicUser> ownerBox;
@@ -32,9 +34,8 @@ public class ReviewController {
     private ComboBox<Driver> driverBox;
     private ComboBox<Integer> ratingBox;
     private TextArea textArea;
-
-    private static final DateTimeFormatter DATE_FORMATTER =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+    private RadioButton restaurantRadio;
+    private RadioButton driverRadio;
 
     public ReviewController(ReviewService reviewService,
                             BasicUserService userService,
@@ -46,12 +47,71 @@ public class ReviewController {
         this.driverService = driverService;
     }
 
-    public BorderPane getView() {
+    public Parent getView() {
         BorderPane root = new BorderPane();
-        root.setPadding(new Insets(10));
 
-        setupTable();
+        // --- TABLE ---
+
+        TableColumn<Review, Long> idCol = new TableColumn<>("ID");
+        idCol.setCellValueFactory(c ->
+                new SimpleLongProperty(c.getValue().getId()).asObject()
+        );
+
+        TableColumn<Review, String> ownerCol = new TableColumn<>("Owner");
+        ownerCol.setCellValueFactory(c ->
+                new SimpleStringProperty(
+                        c.getValue().getCommentOwner() != null
+                                ? c.getValue().getCommentOwner().getLogin()
+                                : ""
+                )
+        );
+
+        TableColumn<Review, String> targetCol = new TableColumn<>("Target");
+        targetCol.setCellValueFactory(c -> {
+            Review r = c.getValue();
+            if (r.getRestaurant() != null) {
+                return new SimpleStringProperty("Restaurant: " + r.getRestaurant().getName());
+            } else if (r.getDriver() != null) {
+                return new SimpleStringProperty("Driver: " + r.getDriver().getName());
+            } else {
+                return new SimpleStringProperty("");
+            }
+        });
+
+        TableColumn<Review, String> feedbackCol = new TableColumn<>("Feedback user");
+        feedbackCol.setCellValueFactory(c ->
+                new SimpleStringProperty(
+                        c.getValue().getFeedbackUser() != null
+                                ? c.getValue().getFeedbackUser().getLogin()
+                                : ""
+                )
+        );
+
+        TableColumn<Review, Integer> ratingCol = new TableColumn<>("Rating");
+        ratingCol.setCellValueFactory(c ->
+                new SimpleIntegerProperty(c.getValue().getRating()).asObject()
+        );
+
+        TableColumn<Review, String> textCol = new TableColumn<>("Text");
+        textCol.setCellValueFactory(c ->
+                new SimpleStringProperty(
+                        c.getValue().getText() != null ? c.getValue().getText() : ""
+                )
+        );
+
+        table.getColumns().setAll(idCol, ownerCol, targetCol, feedbackCol, ratingCol, textCol);
+        table.setItems(FXCollections.observableArrayList(reviewService.getAllReviews()));
+
+        table.getSelectionModel().selectedItemProperty().addListener(
+                (obs, oldVal, selected) -> {
+                    if (selected != null) {
+                        fillForm(selected);
+                    }
+                });
+
         root.setCenter(table);
+
+        // --- FORM ---
 
         ownerBox = new ComboBox<>();
         feedbackBox = new ComboBox<>();
@@ -60,90 +120,47 @@ public class ReviewController {
         ratingBox = new ComboBox<>();
         textArea = new TextArea();
 
-        ownerBox.setPromptText("Comment owner (client)");
-        restaurantBox.setPromptText("Restaurant (optional)");
-        driverBox.setPromptText("Driver (optional)");
-        feedbackBox.setPromptText("Handled by (staff)");
-        ratingBox.setPromptText("Rating (1–5)");
-        textArea.setPromptText("Review text");
-        textArea.setPrefRowCount(3);
+        // owner – tik ne adminai
+        ownerBox.setItems(FXCollections.observableArrayList(
+                userService.getAllUsers()
+                        .stream()
+                        .filter(u -> !u.isAdmin())
+                        .toList()
+        ));
 
-        // Tik klientai (isAdmin == false)
-        ownerBox.setItems(userService.getAllUsers().filtered(u -> !u.isAdmin()));
+        // feedback – tik adminai
+        feedbackBox.setItems(FXCollections.observableArrayList(
+                userService.getAllUsers()
+                        .stream()
+                        .filter(BasicUser::isAdmin)
+                        .toList()
+        ));
 
-        // Tik darbuotojai/adminai (isAdmin == true)
-        feedbackBox.setItems(userService.getAllUsers().filtered(BasicUser::isAdmin));
+        restaurantBox.setItems(FXCollections.observableArrayList(
+                restaurantService.getAllRestaurants()
+        ));
+        driverBox.setItems(FXCollections.observableArrayList(
+                driverService.getAllDrivers()
+        ));
 
-        restaurantBox.setItems(restaurantService.getAllRestaurants());
-        driverBox.setItems(driverService.getAllDrivers());
+        ratingBox.getItems().setAll(1, 2, 3, 4, 5);
 
-        // Rating 1–5
-        ratingBox.getItems().addAll(1, 2, 3, 4, 5);
+        // -- target type: restaurant / driver --
 
-        // Kaip rodom user/restaurant/driver pavadinimus
-        ownerBox.setCellFactory(list -> new ListCell<>() {
-            @Override
-            protected void updateItem(BasicUser item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null ? "" :
-                        item.getName() + " " + item.getSurname() + " (Client)");
+        ToggleGroup targetGroup = new ToggleGroup();
+        restaurantRadio = new RadioButton("Restaurant review");
+        driverRadio = new RadioButton("Driver review");
+        restaurantRadio.setToggleGroup(targetGroup);
+        driverRadio.setToggleGroup(targetGroup);
+
+        restaurantRadio.selectedProperty().addListener((obs, oldVal, isSelected) -> {
+            if (isSelected) {
+                driverBox.setValue(null);
             }
         });
-        ownerBox.setButtonCell(new ListCell<>() {
-            @Override
-            protected void updateItem(BasicUser item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null ? "" :
-                        item.getName() + " " + item.getSurname() + " (Client)");
-            }
-        });
-
-        feedbackBox.setCellFactory(list -> new ListCell<>() {
-            @Override
-            protected void updateItem(BasicUser item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null ? "" :
-                        item.getName() + " " + item.getSurname() + " (Staff)");
-            }
-        });
-        feedbackBox.setButtonCell(new ListCell<>() {
-            @Override
-            protected void updateItem(BasicUser item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null ? "" :
-                        item.getName() + " " + item.getSurname() + " (Staff)");
-            }
-        });
-
-        restaurantBox.setCellFactory(list -> new ListCell<>() {
-            @Override
-            protected void updateItem(Restaurant item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null ? "" : item.getName());
-            }
-        });
-        restaurantBox.setButtonCell(new ListCell<>() {
-            @Override
-            protected void updateItem(Restaurant item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null ? "" : item.getName());
-            }
-        });
-
-        driverBox.setCellFactory(list -> new ListCell<>() {
-            @Override
-            protected void updateItem(Driver item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null ? "" :
-                        item.getName() + " " + item.getSurname());
-            }
-        });
-        driverBox.setButtonCell(new ListCell<>() {
-            @Override
-            protected void updateItem(Driver item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null ? "" :
-                        item.getName() + " " + item.getSurname());
+        driverRadio.selectedProperty().addListener((obs, oldVal, isSelected) -> {
+            if (isSelected) {
+                restaurantBox.setValue(null);
             }
         });
 
@@ -156,12 +173,18 @@ public class ReviewController {
         deleteBtn.setOnAction(e -> deleteReview());
 
         VBox form = new VBox(8,
-                new Label("Review Form"),
+                new Label("Review form"),
+                new Label("Owner:"),
                 ownerBox,
+                restaurantRadio,
                 restaurantBox,
+                driverRadio,
                 driverBox,
+                new Label("Feedback user:"),
                 feedbackBox,
+                new Label("Rating:"),
                 ratingBox,
+                new Label("Text:"),
                 textArea,
                 addBtn,
                 updateBtn,
@@ -171,93 +194,7 @@ public class ReviewController {
 
         root.setRight(form);
 
-        table.getSelectionModel().selectedItemProperty().addListener((obs, old, selected) -> {
-            if (selected != null) fillForm(selected);
-        });
-
         return root;
-    }
-
-    private void setupTable() {
-        TableColumn<Review, Integer> idCol = new TableColumn<>("ID");
-        idCol.setCellValueFactory(new PropertyValueFactory<>("id"));
-
-        TableColumn<Review, String> typeCol = new TableColumn<>("Target type");
-        typeCol.setCellValueFactory(cell -> {
-            Review r = cell.getValue();
-            String type;
-            if (r.getRestaurant() != null) type = "Restaurant";
-            else if (r.getDriver() != null) type = "Driver";
-            else type = "-";
-            return new SimpleStringProperty(type);
-        });
-
-        TableColumn<Review, String> targetCol = new TableColumn<>("Target");
-        targetCol.setCellValueFactory(cell -> {
-            Review r = cell.getValue();
-            if (r.getRestaurant() != null) {
-                return new SimpleStringProperty(r.getRestaurant().getName());
-            } else if (r.getDriver() != null) {
-                return new SimpleStringProperty(
-                        r.getDriver().getName() + " " + r.getDriver().getSurname()
-                );
-            } else {
-                return new SimpleStringProperty("-");
-            }
-        });
-
-        TableColumn<Review, String> ownerCol = new TableColumn<>("Owner");
-        ownerCol.setCellValueFactory(cell -> {
-            BasicUser u = cell.getValue().getCommentOwner();
-            return new SimpleStringProperty(
-                    u != null ? u.getName() + " " + u.getSurname() : ""
-            );
-        });
-
-        TableColumn<Review, String> handlerCol = new TableColumn<>("Handled by");
-        handlerCol.setCellValueFactory(cell -> {
-            BasicUser u = cell.getValue().getFeedbackUser();
-            return new SimpleStringProperty(
-                    u != null ? u.getName() + " " + u.getSurname() : ""
-            );
-        });
-
-        TableColumn<Review, Integer> ratingCol = new TableColumn<>("Rating");
-        ratingCol.setCellValueFactory(new PropertyValueFactory<>("rating"));
-
-        TableColumn<Review, String> dateCol = new TableColumn<>("Created");
-        dateCol.setCellValueFactory(cell ->
-                new SimpleStringProperty(
-                        cell.getValue().getCreatedAt() != null
-                                ? cell.getValue().getCreatedAt().format(DATE_FORMATTER)
-                                : ""
-                ));
-
-        TableColumn<Review, String> textCol = new TableColumn<>("Text");
-        textCol.setCellValueFactory(cell ->
-                new SimpleStringProperty(
-                        cell.getValue().getText() != null
-                                ? trimText(cell.getValue().getText())
-                                : ""
-                ));
-
-        table.setItems(reviewService.getAllReviews());
-        table.getColumns().setAll(
-                idCol,
-                typeCol,
-                targetCol,
-                ownerCol,
-                handlerCol,
-                ratingCol,
-                dateCol,
-                textCol
-        );
-        table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
-    }
-
-    private String trimText(String t) {
-        if (t.length() <= 40) return t;
-        return t.substring(0, 37) + "...";
     }
 
     private void fillForm(Review r) {
@@ -267,20 +204,36 @@ public class ReviewController {
         driverBox.setValue(r.getDriver());
         ratingBox.setValue(r.getRating());
         textArea.setText(r.getText() != null ? r.getText() : "");
+
+        if (r.getRestaurant() != null) {
+            restaurantRadio.setSelected(true);
+        } else if (r.getDriver() != null) {
+            driverRadio.setSelected(true);
+        } else {
+            restaurantRadio.setSelected(false);
+            driverRadio.setSelected(false);
+        }
     }
 
     private void addReview() {
         if (!validate()) return;
 
+        Restaurant targetRestaurant = restaurantRadio.isSelected() ? restaurantBox.getValue() : null;
+        Driver targetDriver = driverRadio.isSelected() ? driverBox.getValue() : null;
+
         Review r = reviewService.createReview(
                 ownerBox.getValue(),
                 feedbackBox.getValue(),
-                restaurantBox.getValue(),
-                driverBox.getValue(),
+                targetRestaurant,
+                targetDriver,
                 ratingBox.getValue(),
                 textArea.getText()
         );
+
+        // pridėti į TableView, nes items yra snapshot’as, o ne live ObservableList iš service
+        table.getItems().add(r);
         table.getSelectionModel().select(r);
+
         showInfo("Review added.");
     }
 
@@ -294,8 +247,8 @@ public class ReviewController {
 
         selected.setCommentOwner(ownerBox.getValue());
         selected.setFeedbackUser(feedbackBox.getValue());
-        selected.setRestaurant(restaurantBox.getValue());
-        selected.setDriver(driverBox.getValue());
+        selected.setRestaurant(restaurantRadio.isSelected() ? restaurantBox.getValue() : null);
+        selected.setDriver(driverRadio.isSelected() ? driverBox.getValue() : null);
         selected.setRating(ratingBox.getValue());
         selected.setText(textArea.getText());
 
@@ -311,21 +264,36 @@ public class ReviewController {
             return;
         }
         reviewService.deleteReview(selected.getId());
+        table.getItems().remove(selected);
         showInfo("Review deleted.");
     }
 
     private boolean validate() {
+        StringBuilder errors = new StringBuilder();
+
         if (ownerBox.getValue() == null) {
-            showError("Comment owner is required.");
-            return false;
+            errors.append("- Comment owner is required.\n");
         }
         if (ratingBox.getValue() == null) {
-            showError("Rating is required.");
-            return false;
+            errors.append("- Rating is required.\n");
         }
-        // Bent vienas iš target – restoranAS arba driveris
-        if (restaurantBox.getValue() == null && driverBox.getValue() == null) {
-            showError("Select restaurant OR driver.");
+
+        boolean restaurantSelected = restaurantRadio.isSelected();
+        boolean driverSelected = driverRadio.isSelected();
+
+        if (!restaurantSelected && !driverSelected) {
+            errors.append("- Select review type: restaurant or driver.\n");
+        } else {
+            if (restaurantSelected && restaurantBox.getValue() == null) {
+                errors.append("- Select restaurant for restaurant review.\n");
+            }
+            if (driverSelected && driverBox.getValue() == null) {
+                errors.append("- Select driver for driver review.\n");
+            }
+        }
+
+        if (errors.length() > 0) {
+            showError(errors.toString());
             return false;
         }
         return true;

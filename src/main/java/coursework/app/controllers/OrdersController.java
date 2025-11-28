@@ -1,25 +1,24 @@
 package coursework.app.controllers;
 
 import coursework.model.*;
+import coursework.service.BasicUserService;
 import coursework.service.CuisineService;
 import coursework.service.DriverService;
 import coursework.service.OrderService;
 import coursework.service.RestaurantService;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
+import javafx.collections.transformation.FilteredList;
 import javafx.geometry.Insets;
+import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.VBox;
+import javafx.stage.Stage;
+
 import java.time.LocalDateTime;
-import javafx.collections.transformation.FilteredList;
 import java.time.format.DateTimeFormatter;
-import coursework.service.BasicUserService;
-import coursework.model.BasicUser;
-
-
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -33,6 +32,7 @@ public class OrdersController {
 
     private final TableView<FoodOrder> table = new TableView<>();
 
+    private ComboBox<BasicUser> buyerBox;
     private ComboBox<Restaurant> restaurantBox;
     private ComboBox<Driver> driverBox;
     private ComboBox<OrderStatus> statusBox;
@@ -40,10 +40,9 @@ public class OrdersController {
     private TextField priceField;
     private TextArea chatArea;
     private FilteredList<Cuisine> filteredCuisines;
+
     private static final DateTimeFormatter CREATED_AT_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
-    private ComboBox<BasicUser> buyerBox;
-
 
     public OrdersController(OrderService orderService,
                             RestaurantService restaurantService,
@@ -57,7 +56,6 @@ public class OrdersController {
         this.cuisineService = cuisineService;
         this.basicUserService = basicUserService;
     }
-
 
     public BorderPane getView() {
         BorderPane root = new BorderPane();
@@ -74,24 +72,23 @@ public class OrdersController {
         priceField = new TextField();
         chatArea = new TextArea();
 
-        buyerBox.setPromptText("Buyer");
-        restaurantBox.setPromptText("Restaurant");
-        driverBox.setPromptText("Driver");
-        statusBox.setPromptText("Status");
         priceField.setPromptText("Total price (auto)");
         priceField.setEditable(false);
         chatArea.setPromptText("Chat messages…");
         chatArea.setPrefRowCount(3);
 
+        // duomenys į combo/list
         buyerBox.setItems(basicUserService.getAllUsers().filtered(u -> !u.isAdmin()));
         restaurantBox.setItems(restaurantService.getAllRestaurants());
         driverBox.setItems(driverService.getAllDrivers());
         statusBox.setItems(FXCollections.observableArrayList(OrderStatus.values()));
 
-        restaurantBox.setItems(restaurantService.getAllRestaurants());
-        driverBox.setItems(driverService.getAllDrivers());
-        statusBox.setItems(FXCollections.observableArrayList(OrderStatus.values()));
+        // patiekalų sąrašas su filtru
+        filteredCuisines = new FilteredList<>(cuisineService.getAllCuisines(), c -> true);
+        dishesList.setItems(filteredCuisines);
+        dishesList.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
 
+        // filtravimas pagal restoraną – listenerį DĖDAM PO filteredCuisines sukūrimo
         restaurantBox.valueProperty().addListener((obs, oldRest, newRest) -> {
             if (newRest == null) {
                 filteredCuisines.setPredicate(c -> true);
@@ -101,19 +98,11 @@ public class OrdersController {
                                 c.getRestaurant().equals(newRest)
                 );
             }
-
             dishesList.getSelectionModel().clearSelection();
             priceField.clear();
         });
 
-        // SUKURIAM FILTEREDLIST iš visų patiekalų
-        filteredCuisines = new FilteredList<>(cuisineService.getAllCuisines(), c -> true);
-
-        // NAUDOJAM filtered list vietoj all cuisines
-        dishesList.setItems(filteredCuisines);
-        dishesList.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
-
-        // kaip rodom patiekalų tekstą
+        // ListCell’ai – kaip rodom tekstą
         dishesList.setCellFactory(list -> new ListCell<>() {
             @Override
             protected void updateItem(Cuisine item, boolean empty) {
@@ -124,7 +113,6 @@ public class OrdersController {
             }
         });
 
-        // kaip rodyti buyer
         buyerBox.setCellFactory(list -> new ListCell<>() {
             @Override
             protected void updateItem(BasicUser item, boolean empty) {
@@ -174,34 +162,38 @@ public class OrdersController {
             }
         });
 
-
-
-
         Button addBtn = new Button("Add order");
         Button updateBtn = new Button("Update order");
         Button deleteBtn = new Button("Delete order");
+        Button statsBtn = new Button("Order stats");
 
         addBtn.setOnAction(e -> addOrder());
         updateBtn.setOnAction(e -> updateOrder());
         deleteBtn.setOnAction(e -> deleteOrder());
+        statsBtn.setOnAction(e -> showOrderStats());
 
         VBox form = new VBox(8,
                 new Label("Order Form"),
+                new Label("Buyer:"),
                 buyerBox,
+                new Label("Restaurant:"),
                 restaurantBox,
+                new Label("Driver:"),
                 driverBox,
+                new Label("Status:"),
                 statusBox,
                 new Label("Dishes (multi-select):"),
                 dishesList,
+                new Label("Total price:"),
                 priceField,
                 new Label("Chat:"),
                 chatArea,
                 addBtn,
                 updateBtn,
-                deleteBtn
+                deleteBtn,
+                statsBtn
         );
         form.setPadding(new Insets(10));
-
         root.setRight(form);
 
         table.getSelectionModel().selectedItemProperty().addListener((obs, old, selected) -> {
@@ -255,11 +247,10 @@ public class OrdersController {
             LocalDateTime dt = cell.getValue().getCreatedAt();
             String text = "";
             if (dt != null) {
-                text = dt.format(CREATED_AT_FORMATTER);  // yyyy-MM-dd HH:mm
+                text = dt.format(CREATED_AT_FORMATTER);
             }
             return new SimpleStringProperty(text);
         });
-
 
         table.setItems(orderService.getAllOrders());
         table.getColumns().setAll(
@@ -270,12 +261,11 @@ public class OrdersController {
                 statusCol,
                 priceCol,
                 itemsCol,
-                dateCol      // ← įdedam čia
+                dateCol
         );
 
         table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
     }
-
 
     private void fillForm(FoodOrder order) {
         buyerBox.setValue(order.getBuyer());
@@ -283,7 +273,6 @@ public class OrdersController {
         driverBox.setValue(order.getDriver());
         statusBox.setValue(order.getStatus());
 
-        // select dishes
         dishesList.getSelectionModel().clearSelection();
         if (order.getCuisineList() != null) {
             for (Cuisine c : order.getCuisineList()) {
@@ -319,7 +308,7 @@ public class OrdersController {
         order.setStatus(statusBox.getValue());
         order.setCuisineList(selectedDishes);
         order.setPrice(totalPrice);
-        order.setCreatedAt(java.time.LocalDateTime.now());
+        order.setCreatedAt(LocalDateTime.now());
 
         if (!chatArea.getText().isBlank()) {
             Chat chat = new Chat();
@@ -331,7 +320,7 @@ public class OrdersController {
         orderService.add(order);
         priceField.setText(String.valueOf(totalPrice));
         showInfo("Order added.");
-        order.setCreatedAt(LocalDateTime.now());
+        table.refresh();
     }
 
     private void updateOrder() {
@@ -377,33 +366,54 @@ public class OrdersController {
         }
 
         orderService.delete(selected.getId());
+        table.getItems().remove(selected);
         showInfo("Order deleted.");
     }
 
     private boolean validate() {
+        StringBuilder errors = new StringBuilder();
 
         if (buyerBox.getValue() == null) {
-            showError("Buyer required.");
-            return false;
+            errors.append("- Buyer must be selected.\n");
         }
-
         if (restaurantBox.getValue() == null) {
-            showError("Select restaurant.");
-            return false;
+            errors.append("- Restaurant must be selected.\n");
         }
         if (driverBox.getValue() == null) {
-            showError("Select driver.");
-            return false;
+            errors.append("- Driver must be selected.\n");
         }
         if (statusBox.getValue() == null) {
-            showError("Select status.");
-            return false;
+            errors.append("- Order status must be selected.\n");
         }
         if (dishesList.getSelectionModel().getSelectedItems().isEmpty()) {
-            showError("Select at least one dish.");
+            errors.append("- Select at least one dish.\n");
+        }
+
+        if (errors.length() > 0) {
+            showError(errors.toString());
             return false;
         }
         return true;
+    }
+
+    private void showOrderStats() {
+        Stage statsStage = new Stage();
+        statsStage.setTitle("Order statistics");
+
+        int totalOrders = orderService.getAllOrders().size();
+        long delivered = orderService.getAllOrders().stream()
+                .filter(o -> o.getStatus() == OrderStatus.DELIVERED)
+                .count();
+
+        Label totalLabel = new Label("Total orders: " + totalOrders);
+        Label deliveredLabel = new Label("Delivered orders: " + delivered);
+
+        VBox root = new VBox(10, totalLabel, deliveredLabel);
+        root.setPadding(new Insets(10));
+
+        statsStage.setScene(new Scene(root, 250, 120));
+        statsStage.initOwner(table.getScene().getWindow());
+        statsStage.show();
     }
 
     private void showError(String msg) {

@@ -19,7 +19,7 @@ public class UsersController {
     private TextField surnameField;
     private TextField phoneField;
     private TextField addressField;
-    private CheckBox adminBox;
+    private CheckBox adminCheck;
 
     public UsersController(BasicUserService service) {
         this.service = service;
@@ -44,7 +44,7 @@ public class UsersController {
         surnameField = new TextField();
         phoneField = new TextField();
         addressField = new TextField();
-        adminBox = new CheckBox("Admin");
+        adminCheck = new CheckBox("Is admin");
 
         loginField.setPromptText("Login");
         passwordField.setPromptText("Password");
@@ -63,13 +63,19 @@ public class UsersController {
 
         VBox form = new VBox(8,
                 new Label("User Form"),
+                new Label("Login:"),
                 loginField,
+                new Label("Password:"),
                 passwordField,
+                new Label("Name:"),
                 nameField,
+                new Label("Surname:"),
                 surnameField,
+                new Label("Phone:"),
                 phoneField,
+                new Label("Address:"),
                 addressField,
-                adminBox,
+                adminCheck,
                 addBtn,
                 updateBtn,
                 deleteBtn
@@ -119,11 +125,12 @@ public class UsersController {
         surnameField.setText(u.getSurname());
         phoneField.setText(u.getPhoneNumber());
         addressField.setText(u.getAddress());
-        adminBox.setSelected(u.isAdmin());
+        adminCheck.setSelected(u.isAdmin());
     }
 
     private void addUser() {
         if (!validate()) return;
+
         service.createBasicUser(
                 loginField.getText(),
                 passwordField.getText(),
@@ -131,9 +138,10 @@ public class UsersController {
                 surnameField.getText(),
                 phoneField.getText(),
                 addressField.getText(),
-                adminBox.isSelected()
+                adminCheck.isSelected()
         );
         showInfo("User added.");
+        table.refresh();
     }
 
     private void updateUser() {
@@ -150,11 +158,19 @@ public class UsersController {
         selected.setSurname(surnameField.getText());
         selected.setPhoneNumber(phoneField.getText());
         selected.setAddress(addressField.getText());
-        selected.setAdmin(adminBox.isSelected());
+        selected.setAdmin(adminCheck.isSelected());
 
         service.updateBasicUser(selected);
         table.refresh();
         showInfo("User updated.");
+    }
+
+    private boolean confirmDelete(String what) {
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION,
+                "Delete " + what + "?",
+                ButtonType.OK, ButtonType.CANCEL);
+        alert.setHeaderText(null);
+        return alert.showAndWait().orElse(ButtonType.CANCEL) == ButtonType.OK;
     }
 
     private void deleteUser() {
@@ -163,17 +179,45 @@ public class UsersController {
             showError("Select user first.");
             return;
         }
+
+        if (!confirmDelete("user " + selected.getLogin())) {
+            return;
+        }
+
         service.deleteBasicUser(selected.getId());
+        table.getItems().remove(selected);
         showInfo("User deleted.");
     }
 
     private boolean validate() {
+        StringBuilder errors = new StringBuilder();
+
         if (loginField.getText().isBlank()) {
-            showError("Login is required.");
-            return false;
+            errors.append("- Login is required.\n");
+        }
+        if (passwordField.getText().isBlank()) {
+            errors.append("- Password is required.\n");
         }
         if (nameField.getText().isBlank()) {
-            showError("Name is required.");
+            errors.append("- Name is required.\n");
+        }
+        if (surnameField.getText().isBlank()) {
+            errors.append("- Surname is required.\n");
+        }
+
+        String phone = phoneField.getText().trim();
+        if (phone.isEmpty()) {
+            errors.append("- Phone is required.\n");
+        } else if (!phone.matches("\\+?[0-9 ]{6,15}")) {
+            errors.append("- Must be a valid phone number.\n");
+        }
+
+        if (addressField.getText().isBlank()) {
+            errors.append("- Address is required.\n");
+        }
+
+        if (errors.length() > 0) {
+            showError(errors.toString());
             return false;
         }
         return true;

@@ -19,6 +19,7 @@ public class DriversController {
     // Form fields
     private TextField loginField;
     private TextField nameField;
+    private TextField surnameField;
     private TextField phoneField;
     private TextField addressField;
     private TextField licenceField;
@@ -53,20 +54,33 @@ public class DriversController {
         // form
         loginField = new TextField();
         nameField = new TextField();
+        surnameField = new TextField();
         phoneField = new TextField();
         addressField = new TextField();
         licenceField = new TextField();
         bDatePicker = new DatePicker();
+
+        bDatePicker.setDayCellFactory(picker -> new DateCell() {
+            @Override
+            public void updateItem(java.time.LocalDate date, boolean empty) {
+                super.updateItem(date, empty);
+                if (date.isAfter(java.time.LocalDate.now())) {
+                    setDisable(true);
+                }
+            }
+        });
+
         vehicleTypeBox = new ComboBox<>();
 
         loginField.setPromptText("Login");
         nameField.setPromptText("Name");
+        surnameField.setPromptText("Surname");
         phoneField.setPromptText("Phone");
         addressField.setPromptText("Address");
         licenceField.setPromptText("Licence");
         bDatePicker.setPromptText("Birth date");
         vehicleTypeBox.getItems().setAll(VehicleType.values());
-        vehicleTypeBox.setPromptText("Vehicle type");
+
 
         Button addBtn = new Button("Add Driver");
         Button updateBtn = new Button("Update Driver");
@@ -78,12 +92,21 @@ public class DriversController {
 
         VBox form = new VBox(8,
                 new Label("Driver Form"),
+                new Label("Login:"),
                 loginField,
+                new Label("Name:"),
                 nameField,
-                phoneField,
+                new Label("Surname:"),
+                surnameField,
+                new Label("Address:"),
                 addressField,
+                new Label("Phone:"),
+                phoneField,
+                new Label("Licence number:"),
                 licenceField,
+                new Label("Birth date:"),
                 bDatePicker,
+                new Label("Vehicle type:"),
                 vehicleTypeBox,
                 addBtn,
                 updateBtn,
@@ -110,6 +133,9 @@ public class DriversController {
         TableColumn<Driver, String> nameCol = new TableColumn<>("Name");
         nameCol.setCellValueFactory(new PropertyValueFactory<>("name"));
 
+        TableColumn<Driver, String> surnameCol = new TableColumn<>("Surname");
+        surnameCol.setCellValueFactory(new PropertyValueFactory<>("surname"));
+
         TableColumn<Driver, String> phoneCol = new TableColumn<>("Phone");
         phoneCol.setCellValueFactory(new PropertyValueFactory<>("phoneNumber"));
 
@@ -125,10 +151,9 @@ public class DriversController {
         TableColumn<Driver, VehicleType> vehicleTypeCol = new TableColumn<>("Vehicle");
         vehicleTypeCol.setCellValueFactory(new PropertyValueFactory<>("vehicleType"));
 
-        // shared list
         table.setItems(service.getAllDrivers());
         table.getColumns().setAll(
-                idCol, loginCol, nameCol, phoneCol,
+                idCol, loginCol, nameCol, surnameCol, phoneCol,
                 addressCol, licenceCol, bDateCol, vehicleTypeCol
         );
         table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
@@ -137,6 +162,7 @@ public class DriversController {
     private void fillForm(Driver d) {
         loginField.setText(d.getLogin());
         nameField.setText(d.getName());
+        surnameField.setText(d.getSurname());
         phoneField.setText(d.getPhoneNumber());
         addressField.setText(d.getAddress());
         licenceField.setText(d.getLicence());
@@ -151,7 +177,7 @@ public class DriversController {
                 loginField.getText(),
                 "defaultPass",
                 nameField.getText(),
-                "Driver",
+                surnameField.getText(),
                 phoneField.getText(),
                 addressField.getText(),
                 licenceField.getText(),
@@ -159,8 +185,8 @@ public class DriversController {
                 vehicleTypeBox.getValue()
         );
 
-        // TableView = shared list, atsinaujina automatiškai
         showInfo("Driver added.");
+        table.refresh();
     }
 
     private void updateDriver() {
@@ -173,6 +199,7 @@ public class DriversController {
 
         selected.setLogin(loginField.getText());
         selected.setName(nameField.getText());
+        selected.setSurname(surnameField.getText());
         selected.setPhoneNumber(phoneField.getText());
         selected.setAddress(addressField.getText());
         selected.setLicence(licenceField.getText());
@@ -192,28 +219,69 @@ public class DriversController {
         }
 
         service.deleteDriver(selected.getId());
+        table.getItems().remove(selected);
         showInfo("Driver deleted.");
     }
 
     private boolean validate() {
+        StringBuilder errors = new StringBuilder();
+
         if (loginField.getText().isBlank()) {
-            showError("Login cannot be empty.");
-            return false;
+            errors.append("- Login cannot be empty.\n");
         }
         if (nameField.getText().isBlank()) {
-            showError("Name cannot be empty.");
-            return false;
+            errors.append("- Name cannot be empty.\n");
         }
+        if (surnameField.getText().isBlank()) {
+            errors.append("- Surname cannot be empty.\n");
+        }
+        if (addressField.getText().isBlank()) {
+            errors.append("- Address cannot be empty.\n");
+        }
+
+        // PHONE CHECK
+        String phone = phoneField.getText().trim();
+        if (phone.isEmpty()) {
+            errors.append("- Phone is required.\n");
+        } else if (!phone.matches("\\+?[0-9 ]{6,15}")) {
+            errors.append("- Must be a valid phone number.\n");
+        }
+
+        // LICENCE CHECK
+        if (licenceField.getText().isBlank()) {
+            errors.append("- Licence number is required.\n");
+        }
+
+        // BIRTH DATE CHECKS
         if (bDatePicker.getValue() == null) {
-            showError("Birth date required.");
-            return false;
+            errors.append("- Birth date is required.\n");
+        } else {
+            var birthDate = bDatePicker.getValue();
+
+            // negali būti ateityje
+            if (birthDate.isAfter(java.time.LocalDate.now())) {
+                errors.append("- Birth date cannot be in the future.\n");
+            }
+
+            // turi būti bent 18 metų
+            int age = java.time.Period.between(birthDate, java.time.LocalDate.now()).getYears();
+            if (age < 18) {
+                errors.append("- Driver must be at least 18 years old.\n");
+            }
         }
+
+        // VEHICLE TYPE
         if (vehicleTypeBox.getValue() == null) {
-            showError("Vehicle type required.");
+            errors.append("- Vehicle type is required.\n");
+        }
+
+        if (errors.length() > 0) {
+            showError(errors.toString());
             return false;
         }
         return true;
     }
+
 
     private void showError(String msg) {
         new Alert(Alert.AlertType.ERROR, msg).showAndWait();

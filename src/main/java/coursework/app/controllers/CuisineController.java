@@ -31,9 +31,9 @@ public class CuisineController {
         this.restaurantService = restaurantService;
         this.service = cuisineService;
 
-        // demo patiekalai, jei yra restoranų
+        // demo patiekalas, jei yra restoranų ir kol kas nėra patiekalų
         var allRestaurants = restaurantService.getAllRestaurants();
-        if (allRestaurants.size() >= 1 && service.getAllCuisines().isEmpty()) {
+        if (!allRestaurants.isEmpty() && service.getAllCuisines().isEmpty()) {
             Restaurant r1 = allRestaurants.get(0);
             service.createCuisine("Burger", "Beef, bun, cheese", 8.5, false, false, r1);
         }
@@ -46,6 +46,7 @@ public class CuisineController {
         setupTable();
         root.setCenter(table);
 
+        // --- form fields ---
         nameField = new TextField();
         ingredientsArea = new TextArea();
         priceField = new TextField();
@@ -57,7 +58,6 @@ public class CuisineController {
         ingredientsArea.setPromptText("Ingredients / description");
         ingredientsArea.setPrefRowCount(3);
         priceField.setPromptText("Price");
-        restaurantBox.setPromptText("Restaurant");
 
         restaurantBox.setItems(restaurantService.getAllRestaurants());
 
@@ -86,18 +86,21 @@ public class CuisineController {
 
         VBox form = new VBox(8,
                 new Label("Cuisine / Dish Form"),
+                new Label("Name:"),
                 nameField,
+                new Label("Ingredients / description:"),
                 ingredientsArea,
+                new Label("Price:"),
                 priceField,
                 spicyBox,
                 veganBox,
+                new Label("Restaurant:"),
                 restaurantBox,
                 addBtn,
                 updateBtn,
                 deleteBtn
         );
         form.setPadding(new Insets(10));
-
         root.setRight(form);
 
         table.getSelectionModel().selectedItemProperty().addListener((obs, old, selected) -> {
@@ -170,6 +173,7 @@ public class CuisineController {
         );
 
         showInfo("Dish added.");
+        table.refresh();
     }
 
     private void updateCuisine() {
@@ -208,20 +212,33 @@ public class CuisineController {
         }
 
         service.deleteCuisine(selected.getId());
+        table.getItems().remove(selected);
         showInfo("Dish deleted.");
     }
 
     private boolean validate() {
+        StringBuilder errors = new StringBuilder();
+
         if (nameField.getText().isBlank()) {
-            showError("Name cannot be empty.");
-            return false;
-        }
-        if (priceField.getText().isBlank()) {
-            showError("Price cannot be empty.");
-            return false;
+            errors.append("- Dish name is required.\n");
         }
         if (restaurantBox.getValue() == null) {
-            showError("Select a restaurant.");
+            errors.append("- Restaurant must be selected.\n");
+        }
+
+        String priceText = priceField.getText().trim();
+        if (priceText.isEmpty()) {
+            errors.append("- Price is required.\n");
+        } else {
+            try {
+                Double.parseDouble(priceText);
+            } catch (NumberFormatException e) {
+                errors.append("- Price must be a valid number.\n");
+            }
+        }
+
+        if (errors.length() > 0) {
+            showError(errors.toString());
             return false;
         }
         return true;
